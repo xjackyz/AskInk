@@ -54,8 +54,9 @@ final class ReaderStore: ObservableObject {
     @Published var automaticError: String?
     @Published var busy = false
     @Published var saveStatus = "笔迹保存在本机"
-    @Published var stabilization = 0.15 { didSet { UserDefaults.standard.set(stabilization, forKey: "inkStabilization") } }
+    @Published var stabilization = 0.1 { didSet { UserDefaults.standard.set(stabilization, forKey: "inkStabilization") } }
     @Published var pressureSensitivity = 0.5 { didSet { UserDefaults.standard.set(pressureSensitivity, forKey: "inkPressure") } }
+    @Published var pressureSmoothing = UserDefaults.standard.object(forKey: "inkPressureSmoothing") as? Double ?? 0.4 { didSet { UserDefaults.standard.set(pressureSmoothing, forKey: "inkPressureSmoothing") } }
     weak var bridge: PDFReaderCoordinator?
     private let disk = DispatchQueue(label: "AskInk.local-storage")
     private let root: URL

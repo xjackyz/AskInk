@@ -11,6 +11,7 @@ struct InkSample {
     var roll: Double = 0
     var width: Double = 2
     var rawPoint: CGPoint? = nil
+    var rawPressure: Double? = nil
 }
 
 // Adaptive low-pass (1 Euro): suppress slow micro-jitter, increase cutoff at speed.
@@ -80,5 +81,44 @@ enum InkDynamics {
         let dx = b.x - a.x, dy = b.y - a.y, length = dx*dx + dy*dy
         let t = length > 0 ? min(1, max(0, ((point.x-a.x)*dx + (point.y-a.y)*dy) / length)) : 0
         return hypot(point.x - a.x - t*dx, point.y - a.y - t*dy)
+    }
+}
+
+// Force filtering is independent of the positional stabilizer.
+struct InkPressureFilter {
+    private var previous: Double?
+    private var time: Double?
+    mutating func process(_ force: Double, time: Double, strength: Double) -> Double {
+        let raw = min(1, max(0, force))
+        guard let previous, let lastTime = self.time else { self.previous = raw; self.time = time; return raw }
+        let s = min(1, max(0, strength))
+        let dt = max(0.001, min(0.1, time - lastTime))
+        let cutoff = 50 * (1 - s) + 8 * s
+        let gain = s == 0 ? 1 : 1 - exp(-2 * .pi * cutoff * dt)
+        let result = previous + gain * (raw - previous)
+        self.previous = result; self.time = time
+        return result
+    }
+}
+
+enum InkFinalizer {
+    static func simplify(_ samples: [InkSample], tolerance: Double = 0.15) -> [InkSample] {
+        guard samples.count > 2 else { return samples }
+        var keep = Set([0, samples.count - 1]), stack = [(0, samples.count - 1)]
+        while let (a, b) = stack.popLast() {
+            guard b > a + 1 else { continue }
+            var best = 1.0, split: Int?
+            let duration = max(0.001, samples[b].time - samples[a].time)
+            for i in (a + 1)..<b {
+                let t = min(1, max(0, (samples[i].time - samples[a].time) / duration))
+                let width = samples[a].width + t * (samples[b].width - samples[a].width)
+                let force = samples[a].pressure + t * (samples[b].pressure - samples[a].pressure)
+                let score = max(InkDynamics.distance(samples[i].point, to: samples[a].point, samples[b].point) / max(0.01, tolerance),
+                    abs(samples[i].width - width) / 0.08, abs(samples[i].pressure - force) / 0.04)
+                if score > best { best = score; split = i }
+            }
+            if let split { keep.insert(split); stack.append((a, split)); stack.append((split, b)) }
+        }
+        return keep.sorted().map { samples[$0] }
     }
 }

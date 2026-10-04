@@ -223,12 +223,12 @@ final class PDFReaderCoordinator: NSObject, @preconcurrency PDFPageOverlayViewPr
         for (number, canvas) in canvases where ready.contains(number) { canvas.commitActiveStroke(); store.saveDrawing(canvas.drawing, page: number) }
     }
     func applyTool(force: Bool = false) {
-        let signature = "\(store.tool.rawValue)|\(store.width)|\(UIColor(store.color))|\(store.stabilization)|\(store.pressureSensitivity)"
+        let signature = "\(store.tool.rawValue)|\(store.width)|\(UIColor(store.color))|\(store.stabilization)|\(store.pressureSensitivity)|\(store.pressureSmoothing)"
         guard force || appliedTool != signature else { return }
         appliedTool = signature
         for canvas in canvases.values {
             canvas.inkTool = store.tool; canvas.inkColor = UIColor(store.color); canvas.inkWidth = store.width
-            canvas.stabilization = store.stabilization; canvas.sensitivity = store.pressureSensitivity
+            canvas.stabilization = store.stabilization; canvas.sensitivity = store.pressureSensitivity; canvas.pressureSmoothing = store.pressureSmoothing
         }
     }
     func undo() { canvases[store.page]?.commitActiveStroke(); canvases[store.page]?.undoManager?.undo() }

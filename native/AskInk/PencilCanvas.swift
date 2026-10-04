@@ -14,13 +14,15 @@ final class PencilCanvas: UIView {
     var inkTool: InkTool = .pen
     var inkColor = UIColor.black
     var inkWidth = 2.0
-    var stabilization = 0.15
+    var stabilization = 0.1
     var sensitivity = 0.5
+    var pressureSmoothing = 0.4
     private var strokes: [PKStroke] = []
     var drawing: PKDrawing {
         get { PKDrawing(strokes: strokes) }
-        set { strokes = newValue.strokes; pendingEstimates = [:]; rebuild(); history.removeAllActions() }
+        set { strokes = newValue.strokes; pendingEstimates = [:]; finalizationVersions = [:]; rebuild(); history.removeAllActions() }
     }
+    private var finalizationVersions: [Date: UUID] = [:]
     private let history = UndoManager()
     override var undoManager: UndoManager? { history }
     private var strokeLayers: [CAShapeLayer] = []
@@ -31,6 +33,7 @@ final class PencilCanvas: UIView {
     private var samples: [InkSample] = []
     private var estimated: [NSNumber: Int] = [:]
     private var filter = InkStabilizer()
+    private var forceFilter = InkPressureFilter()
     var isUsingTool: Bool { pencil != nil }
     func commitActiveStroke() { if let touch = pencil { endStroke(touch, event: nil, reason: .forced) } }
     private var pencil: UITouch?
@@ -39,7 +42,8 @@ final class PencilCanvas: UIView {
     private var activeTool = InkTool.pen
     private var activeColor = UIColor.black
     private var activeWidth = 2.0
-    private var activeStability = 0.15
+    private var activeStability = 0.1
+    private var activePressureSmoothing = 0.4
     private var activeSensitivity = 0.5
     private var beforeGesture: [PKStroke] = []
     private var lastErasePoint: CGPoint?
@@ -77,6 +81,7 @@ final class PencilCanvas: UIView {
     }
     private func replace(_ replacement: [PKStroke], undo old: [PKStroke]) {
         history.registerUndo(withTarget:self) { target in target.replace(old, undo:target.strokes) }
+        finalizationVersions.removeAll()
         strokes = replacement; rebuild(); delegate?.canvasViewDrawingDidChange(self, reason: .undoRedo)
     }
     private func input(_ touch: UITouch) -> InkSample {
@@ -90,6 +95,8 @@ final class PencilCanvas: UIView {
         let raw = input(touch)
         if let last = samples.last, raw.time <= last.time { return }
         var sample = filter.process(raw, strength:activeStability)
+        sample.rawPressure = raw.pressure
+        sample.pressure = forceFilter.process(raw.pressure, time: raw.time, strength: activePressureSmoothing)
         let last = samples.last
         let dx = sample.point.x-(last?.point.x ?? sample.point.x), dy = sample.point.y-(last?.point.y ?? sample.point.y)
         distance += hypot(dx,dy)
@@ -133,8 +140,8 @@ final class PencilCanvas: UIView {
         pencil = touch; beforeGesture = strokes; startDate = Date()
         activeTool = inkTool; activeColor = inkColor
         activeWidth = inkTool == .marker ? inkWidth*8 : inkWidth
-        activeStability = stabilization; activeSensitivity = sensitivity
-        samples = []; estimated = [:]; filter = InkStabilizer(); distance = 0; livePath = InkLivePath(); lastErasePoint = nil
+        activeStability = stabilization; activeSensitivity = sensitivity; activePressureSmoothing = pressureSmoothing
+        samples = []; estimated = [:]; filter = InkStabilizer(); forceFilter = InkPressureFilter(); distance = 0; livePath = InkLivePath(); lastErasePoint = nil
         delegate?.canvasViewDidBeginUsingTool(self)
         if activeTool == .eraser { erase(at:touch.preciseLocation(in:self)); return }
         append(touch); updateLive(predicted:event?.predictedTouches(for:touch) ?? [])
@@ -174,6 +181,7 @@ final class PencilCanvas: UIView {
         CATransaction.begin(); CATransaction.setDisableActions(true)
         let tool = activeTool
         var change: InkChangeReason?
+        var tapered = Set<Int>()
         if tool == .eraser {
             if reason == .cancelled { strokes = beforeGesture; rebuild() }
             else if strokes.count != beforeGesture.count {
@@ -190,6 +198,7 @@ final class PencilCanvas: UIView {
                 for i in stride(from: samples.count - 1, through: 0, by: -1) {
                     if i + 1 < samples.count { remaining += hypot(samples[i+1].point.x - samples[i].point.x, samples[i+1].point.y - samples[i].point.y) }
                     if remaining > max(3, activeWidth * 2) { break }
+                    tapered.insert(i)
                     samples[i].width *= 0.2 + 0.8 * min(1, remaining / max(3, activeWidth * 2))
                 }
             }
@@ -205,10 +214,11 @@ final class PencilCanvas: UIView {
                         width: activeWidth, sensitivity: activeSensitivity, allowAutomaticQuestion: reason == .completed)
                 }
                 let shape = makeLayer(color: activeColor)
-                shape.path = InkRendering.path(for: samples); shape.opacity = tool == .marker ? 0.3 : 1
+                shape.path = livePath.complete(samples, changed: tapered); shape.opacity = tool == .marker ? 0.3 : 1
                 strokeLayers.append(shape)
                 history.registerUndo(withTarget: self) { [old = beforeGesture] target in target.replace(old, undo: target.strokes) }
                 change = reason == .completed ? .completedStroke : .preservedStroke
+                if estimated.isEmpty { finalize(startDate, samples: samples, automatic: reason == .completed) }
             }
         }
         activeLayers.forEach { $0.removeFromSuperlayer() }; activeLayers = []; tail.path = nil
@@ -218,17 +228,39 @@ final class PencilCanvas: UIView {
         if let change { delegate?.canvasViewDrawingDidChange(self, reason: change) }
         delegate?.canvasViewDidEndUsingTool(self, tool: tool, reason: reason)
     }
+    private func finalize(_ date: Date, samples: [InkSample], automatic: Bool) {
+        let version = UUID(); finalizationVersions[date] = version
+        Task { [weak self] in
+            let result = await Task.detached(priority: .utility) {
+                let points = InkFinalizer.simplify(samples)
+                return (points, InkRendering.path(for: points))
+            }.value
+            guard let self, self.finalizationVersions[date] == version,
+                  self.pendingEstimates[date] == nil,
+                  let index = self.strokes.firstIndex(where: { $0.path.creationDate == date }) else { return }
+            self.finalizationVersions.removeValue(forKey: date)
+            guard result.0.count < self.strokes[index].path.count, let first = result.0.first else { return }
+            let points = result.0.map { PKStrokePoint(location: $0.point, timeOffset: $0.time - first.time,
+                size: CGSize(width: $0.width, height: $0.width), opacity: 1, force: $0.pressure, azimuth: $0.azimuth, altitude: $0.altitude) }
+            self.strokes[index] = PKStroke(ink: self.strokes[index].ink, path: PKStrokePath(controlPoints: points, creationDate: date))
+            CATransaction.begin(); CATransaction.setDisableActions(true)
+            self.strokeLayers[index].path = result.1; CATransaction.commit()
+            self.delegate?.canvasViewDrawingDidChange(self, reason: automatic ? .estimatedCorrection : .preservedStroke)
+        }
+    }
     private func corrected(_ old: InkSample, from touch: UITouch, tool: InkTool, base: Double, sensitivity: Double) -> InkSample {
         let raw = input(touch)
         var result = old
         let original = old.rawPoint ?? old.point
         result.point.x += raw.point.x-original.x; result.point.y += raw.point.y-original.y
-        result.rawPoint = raw.point; result.pressure = raw.pressure
+        result.rawPoint = raw.point
+        let pressureDelta = raw.pressure - (old.rawPressure ?? old.pressure)
+        result.pressure = min(1, max(0, old.pressure + pressureDelta * 0.4)); result.rawPressure = raw.pressure
         result.altitude = raw.altitude; result.azimuth = raw.azimuth; result.roll = raw.roll
         let kind: InkBrush = tool == .ballpoint ? .ballpoint : tool == .brush ? .brush : tool == .marker ? .marker : .fountain
         let previousWidth = InkDynamics.width(brush:kind,base:base,pressure:old.pressure,sensitivity:sensitivity,
             speed:0,altitude:old.altitude,roll:old.roll,direction:0,distance:100)
-        let newWidth = InkDynamics.width(brush:kind,base:base,pressure:raw.pressure,sensitivity:sensitivity,
+        let newWidth = InkDynamics.width(brush:kind,base:base,pressure:result.pressure,sensitivity:sensitivity,
             speed:0,altitude:raw.altitude,roll:raw.roll,direction:0,distance:100)
         // Retain the taper and velocity factors already applied to this point.
         result.width = max(0.15, old.width * newWidth / max(0.15,previousWidth))
@@ -246,6 +278,7 @@ final class PencilCanvas: UIView {
             } else if let date = pendingEstimates.first(where: { $0.value.indices[key] != nil })?.key,
                       var pending = pendingEstimates[date], let point = pending.indices[key],
                       let index = strokes.firstIndex(where: { $0.path.creationDate == date }) {
+                finalizationVersions.removeValue(forKey: date)
                 pending.points[point] = corrected(pending.points[point],from:touch,tool:pending.tool,base:pending.width,sensitivity:pending.sensitivity)
                 if touch.estimatedPropertiesExpectingUpdates.isEmpty { pending.indices.removeValue(forKey:key) }
                 pendingEstimates[date] = pending.indices.isEmpty ? nil : pending
@@ -253,6 +286,7 @@ final class PencilCanvas: UIView {
                 let points = values.map { PKStrokePoint(location:$0.point,timeOffset:$0.time-firstTime,size:CGSize(width:$0.width,height:$0.width),opacity:1,force:$0.pressure,azimuth:$0.azimuth,altitude:$0.altitude) }
                 strokes[index] = PKStroke(ink:strokes[index].ink,path:PKStrokePath(controlPoints:points,creationDate:date))
                 strokeLayers[index].path = InkRendering.path(for:values)
+                if pending.indices.isEmpty { finalize(date, samples: values, automatic: pending.allowAutomaticQuestion) }
                 delegate?.canvasViewDrawingDidChange(self, reason: pending.allowAutomaticQuestion ? .estimatedCorrection : .preservedStroke)
             }
         }

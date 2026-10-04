@@ -52,6 +52,20 @@ struct InkLivePath {
         return changed.sorted().map { InkChunkUpdate(index: $0, path: chunks[$0].copy()!) }
     }
 
+    mutating func complete(_ samples: [InkSample], changed: Set<Int>) -> CGPath {
+        _ = correct(samples, indices: changed)
+        while committedSegments + 1 < samples.count {
+            let index = committedSegments / Self.chunkSize
+            if chunks.count <= index { chunks.append(CGMutablePath()) }
+            InkRendering.ribbon(samples, segment: committedSegments, into: chunks[index])
+            committedSegments += 1
+        }
+        let result = CGMutablePath()
+        if samples.count == 1 { result.addPath(InkRendering.path(for: samples)) }
+        else { chunks.forEach { result.addPath($0) } }
+        return result
+    }
+
     mutating func correct(_ samples: [InkSample], indices: Set<Int>) -> [InkChunkUpdate] {
         var affected = Set<Int>()
         for point in indices {

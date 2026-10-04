@@ -11,6 +11,7 @@ handwriting/model-cache/
 handwriting/samples/
 native/Pods/
 native/.build/
+native/.swiftpm/
 native/DerivedData/
 native/build/
 native/AskInk.local.xcconfig
@@ -18,3 +19,6 @@ native/AskInk.local.xcconfig
 *.xcuserstate
 *.xcarchive/
 *.ipa
+
+# Legacy workspace may be recreated by an already-open Xcode window.
+native/AIReader.xcworkspace/
