@@ -1,0 +1,315 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 71;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		94A626E24AA9F094F4C09EA0 /* Pods_AskInk.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2004254C686286EFD2A40AEA /* Pods_AskInk.framework */; };
+		A00000000000000000000021 /* Models in Resources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000020 /* Models */; };
+		A00000000000000000000023 /* ThirdPartyNotices in Resources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000022 /* ThirdPartyNotices */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		2004254C686286EFD2A40AEA /* Pods_AskInk.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_AskInk.framework; sourceTree = BUILT_PRODUCTS_DIR; };
+		5807C16FA89492D42D85222C /* Release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; path = Release.xcconfig; sourceTree = "<group>"; };
+		7D30C4A4245BCA7F9B8DE0ED /* Pods-AskInk.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-AskInk.debug.xcconfig"; path = "Target Support Files/Pods-AskInk/Pods-AskInk.debug.xcconfig"; sourceTree = "<group>"; };
+		A00000000000000000000011 /* AskInk.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AskInk.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A00000000000000000000020 /* Models */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Models; sourceTree = "<group>"; };
+		A00000000000000000000022 /* ThirdPartyNotices */ = {isa = PBXFileReference; lastKnownFileType = folder; path = ThirdPartyNotices; sourceTree = "<group>"; };
+		AAD2BF46CF89DD20202B3EFF /* Pods-AskInk.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-AskInk.release.xcconfig"; path = "Target Support Files/Pods-AskInk/Pods-AskInk.release.xcconfig"; sourceTree = "<group>"; };
+		E424598EC59642362A3BCF35 /* Debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; path = Debug.xcconfig; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		A00000000000000000000010 /* AskInk */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
+			explicitFileTypes = {
+			};
+			explicitFolders = (
+			);
+			path = AskInk;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		A00000000000000000000008 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				94A626E24AA9F094F4C09EA0 /* Pods_AskInk.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		031DB18D0CBA3F52A5FB633D /* Configuration */ = {
+			isa = PBXGroup;
+			children = (
+				E424598EC59642362A3BCF35 /* Debug.xcconfig */,
+				5807C16FA89492D42D85222C /* Release.xcconfig */,
+			);
+			name = Configuration;
+			path = Configuration;
+			sourceTree = "<group>";
+		};
+		9431F90FC1E66E059163A8AF /* Pods */ = {
+			isa = PBXGroup;
+			children = (
+				7D30C4A4245BCA7F9B8DE0ED /* Pods-AskInk.debug.xcconfig */,
+				AAD2BF46CF89DD20202B3EFF /* Pods-AskInk.release.xcconfig */,
+			);
+			path = Pods;
+			sourceTree = "<group>";
+		};
+		A00000000000000000000004 = {
+			isa = PBXGroup;
+			children = (
+				A00000000000000000000010 /* AskInk */,
+				A00000000000000000000020 /* Models */,
+				A00000000000000000000022 /* ThirdPartyNotices */,
+				A00000000000000000000005 /* Products */,
+				9431F90FC1E66E059163A8AF /* Pods */,
+				EB60C53D693D69B0DC1AC8E9 /* Frameworks */,
+				031DB18D0CBA3F52A5FB633D /* Configuration */,
+			);
+			sourceTree = "<group>";
+		};
+		A00000000000000000000005 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				A00000000000000000000011 /* AskInk.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		EB60C53D693D69B0DC1AC8E9 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				2004254C686286EFD2A40AEA /* Pods_AskInk.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		A00000000000000000000002 /* AskInk */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A00000000000000000000006 /* Build configuration list for PBXNativeTarget "AskInk" */;
+			buildPhases = (
+				C26B6B851D0D0F232A61AE9F /* [CP] Check Pods Manifest.lock */,
+				A00000000000000000000007 /* Sources */,
+				A00000000000000000000008 /* Frameworks */,
+				A00000000000000000000009 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				A00000000000000000000010 /* AskInk */,
+			);
+			name = AskInk;
+			productName = AskInk;
+			productReference = A00000000000000000000011 /* AskInk.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		A00000000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 2700;
+				TargetAttributes = {
+					A00000000000000000000002 = {
+						CreatedOnToolsVersion = 27.0;
+					};
+				};
+			};
+			buildConfigurationList = A00000000000000000000003 /* Build configuration list for PBXProject "AskInk" */;
+			compatibilityVersion = "Xcode 16.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+				"zh-Hans",
+			);
+			mainGroup = A00000000000000000000004;
+			productRefGroup = A00000000000000000000005 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				A00000000000000000000002 /* AskInk */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		A00000000000000000000009 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A00000000000000000000021 /* Models in Resources */,
+				A00000000000000000000023 /* ThirdPartyNotices in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		C26B6B851D0D0F232A61AE9F /* [CP] Check Pods Manifest.lock */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"${PODS_PODFILE_DIR_PATH}/Podfile.lock",
+				"${PODS_ROOT}/Manifest.lock",
+			);
+			name = "[CP] Check Pods Manifest.lock";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(DERIVED_FILE_DIR)/Pods-AskInk-checkManifestLockResult.txt",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
+			showEnvVarsInLog = 0;
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		A00000000000000000000007 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		A00000000000000000000012 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_MODULES = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		A00000000000000000000013 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_MODULES = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		A00000000000000000000014 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = E424598EC59642362A3BCF35 /* Debug.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "$(ASKINK_DEVELOPMENT_TEAM)";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Info.plist;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(ASKINK_BUNDLE_IDENTIFIER)";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_OBJC_BRIDGING_HEADER = "AskInk/PaddleOCR/Bridging-Header.h";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 2;
+				USER_HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/AskInk/PaddleOCR/Engine",
+					"$(SRCROOT)/AskInk/PaddleOCR/ThirdParty/Clipper1",
+					"$(PODS_ROOT)/onnxruntime-objc",
+				);
+			};
+			name = Debug;
+		};
+		A00000000000000000000015 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 5807C16FA89492D42D85222C /* Release.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "$(ASKINK_DEVELOPMENT_TEAM)";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Info.plist;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(ASKINK_BUNDLE_IDENTIFIER)";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_OBJC_BRIDGING_HEADER = "AskInk/PaddleOCR/Bridging-Header.h";
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 2;
+				USER_HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/AskInk/PaddleOCR/Engine",
+					"$(SRCROOT)/AskInk/PaddleOCR/ThirdParty/Clipper1",
+					"$(PODS_ROOT)/onnxruntime-objc",
+				);
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		A00000000000000000000003 /* Build configuration list for PBXProject "AskInk" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A00000000000000000000012 /* Debug */,
+				A00000000000000000000013 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A00000000000000000000006 /* Build configuration list for PBXNativeTarget "AskInk" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A00000000000000000000014 /* Debug */,
+				A00000000000000000000015 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = A00000000000000000000001 /* Project object */;
+}

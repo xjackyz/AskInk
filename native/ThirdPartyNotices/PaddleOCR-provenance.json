@@ -1,0 +1,23 @@
+{
+  "source": "https://github.com/PaddlePaddle/PaddleOCR/tree/main/deploy/ios_demo",
+  "commit": "dab3fe35379033fdcb2d0e9572fac0b36c9a9ebf",
+  "modelFamily": "PP-OCRv6_small",
+  "models": {
+    "Models/det/inference.onnx": {
+      "bytes": 9880512,
+      "sha256": "d73e0058b7a8086bbd57f3d10b8bcd4ff95363f67e06e2762b5e814fe9c9410e"
+    },
+    "Models/det/inference.yml": {
+      "bytes": 885,
+      "sha256": "193f435274bf9f0b5f71a929bbfbcf148282df7e633b34e7c373e8f44741b516"
+    },
+    "Models/rec/inference.onnx": {
+      "bytes": 21159378,
+      "sha256": "5435fd747c9e0efe15a96d0b378d5bd157e9492ed8fd80edf08f30d02fa24634"
+    },
+    "Models/rec/inference.yml": {
+      "bytes": 150579,
+      "sha256": "ab078671bb49f06228eadccd34f1bb501e157f7a047095ffb943ba81512c77d1"
+    }
+  }
+}

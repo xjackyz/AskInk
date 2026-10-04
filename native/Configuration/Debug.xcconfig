@@ -1,0 +1,3 @@
+#include "../Pods/Target Support Files/Pods-AskInk/Pods-AskInk.debug.xcconfig"
+ASKINK_BUNDLE_IDENTIFIER = com.askink.personal
+#include? "../AskInk.local.xcconfig"
