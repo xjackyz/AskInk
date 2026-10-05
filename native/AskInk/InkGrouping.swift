@@ -22,13 +22,14 @@ enum InkGrouping {
 
     /// Keep every pen stroke, including minus signs, dots and long horizontals.
     /// Time ends a block; space prevents unrelated margin notes from merging.
-    static func blocks(_ input: [InkStrokeDescriptor], pause: TimeInterval = 3) -> [[Int]] {
+    static func blocks(_ input: [InkStrokeDescriptor], pause: TimeInterval = 3, boundaries: [TimeInterval] = []) -> [[Int]] {
         let ordered = input.sorted { $0.started == $1.started ? $0.index < $1.index : $0.started < $1.started }
         var groups: [[InkStrokeDescriptor]] = []
         for stroke in ordered {
             guard var last = groups.last else { groups.append([stroke]); continue }
             let previous = last.last!
             let gap = max(0, stroke.started - previous.ended)
+            let separatedByMark = boundaries.contains { $0 >= previous.ended && $0 < stroke.started }
             let recent = Array(last.suffix(24))
             let heights = recent.map { $0.bounds.height }.filter { $0 > 4 }.sorted()
             let letterHeight = max(12, min(64, heights.isEmpty ? 20 : heights[heights.count / 2]))
@@ -43,13 +44,15 @@ enum InkGrouping {
             let newLine = stroke.bounds.minY >= previous.bounds.minY &&
                 stroke.bounds.minY - bounds.maxY <= letterHeight * 1.5 &&
                 abs(stroke.bounds.minX - bounds.minX) <= letterHeight * 2
-            if gap <= pause && (sameArea || newLine) {
+            if !separatedByMark && gap <= pause && (sameArea || newLine) {
                 last.append(stroke); groups[groups.count - 1] = last
             } else {
                 // A late correction to an older block belongs to that block,
                 // only when it overlaps its writing area; no global time guessing.
-                if gap <= 12, let correction = groups.indices.reversed().first(where: { index in
-                    groups[index].contains { $0.bounds.insetBy(dx: -letterHeight * 0.4, dy: -letterHeight * 0.4).intersects(stroke.bounds) }
+                if !separatedByMark && gap <= 12, let correction = groups.indices.reversed().first(where: { index in
+                    let groupEnd = groups[index].map(\.ended).max() ?? 0
+                    guard !boundaries.contains(where: { $0 >= groupEnd && $0 < stroke.started }) else { return false }
+                    return groups[index].contains { $0.bounds.insetBy(dx: -letterHeight * 0.4, dy: -letterHeight * 0.4).intersects(stroke.bounds) }
                 }) {
                     groups[correction].append(stroke)
                 } else { groups.append([stroke]) }

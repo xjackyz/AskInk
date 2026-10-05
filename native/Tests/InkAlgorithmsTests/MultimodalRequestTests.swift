@@ -59,4 +59,28 @@ final class MultimodalRequestTests: XCTestCase {
             endpoint: "https://example.com/v1/chat/completions", includeImage: false)
         XCTAssertNoThrow(try AIRequest.request(connection: connection, key: "test-key", body: ["question": "为什么？", "context": "正文"]))
     }
+    func testHistoryBudgetAndUsageReporting() throws {
+        let connection = AIConnection(provider: .openAI, model: "test-model", endpoint: AIProvider.openAI.defaultEndpoint, includeImage: true)
+        let request = try AIRequest.request(connection: connection, key: "test-key", body: ["question": "为什么？", "context": "正文",
+            "history": (1...8).map { ["question": "q\($0)", "answer": String(repeating: "答", count: 1000)] }])
+        let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(request.httpBody)) as? [String: Any])
+        let blocks = try content(payload, provider: .openAI)
+        let body = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(try XCTUnwrap(blocks.first?["text"] as? String).utf8)) as? [String: Any])
+        let history = try XCTUnwrap(body["history"] as? [[String: String]])
+        XCTAssertLessThanOrEqual(history.reduce(0) { $0 + ($1["question"]?.count ?? 0) + ($1["answer"]?.count ?? 0) }, 1400)
+        let response: [String: Any] = ["status": "completed", "model": "test-model", "usage": ["input_tokens": 123, "output_tokens": 45],
+            "output": [["content": [["type": "output_text", "text": "{\"answer\":\"答\",\"needsClarification\":false}"]]]]]
+        let decoded = try AIRequest.decode(data: JSONSerialization.data(withJSONObject: response), status: 200, connection: connection)
+        XCTAssertEqual(decoded.inputTokens, 123); XCTAssertEqual(decoded.outputTokens, 45)
+    }
+    func testSummaryInputIsNotPrefixTruncated() throws {
+        let connection = AIConnection(provider: .openAI, model: "test-model", endpoint: AIProvider.openAI.defaultEndpoint, includeImage: true)
+        let text = String(repeating: "字", count: 4500) + "最后的否定"
+        let request = try AIRequest.request(connection: connection, key: "test-key", body: ["task": "summary", "question": "总结", "context": text])
+        let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(request.httpBody)) as? [String: Any])
+        let blocks = try content(payload, provider: .openAI)
+        let body = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(try XCTUnwrap(blocks.first?["text"] as? String).utf8)) as? [String: Any])
+        XCTAssertEqual(body["context"] as? String, text)
+        XCTAssertEqual(payload["max_output_tokens"] as? Int, 1000)
+    }
 }

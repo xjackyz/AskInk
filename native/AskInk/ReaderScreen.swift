@@ -1,5 +1,7 @@
 import SwiftUI
 import UniformTypeIdentifiers
+import PDFKit
+import PencilKit
 
 private enum ReaderStyle {
     static let accent = Color(uiColor: UIColor { traits in
@@ -12,21 +14,12 @@ private enum ReaderStyle {
         traits.userInterfaceStyle == .dark ? UIColor.secondarySystemBackground : UIColor(red: 1, green: 0.992, blue: 0.976, alpha: 1)
     })
     static let canvas = Color(uiColor: UIColor { traits in
-        traits.userInterfaceStyle == .dark ? UIColor.systemBackground : UIColor(red: 0.945, green: 0.958, blue: 0.984, alpha: 1)
+        traits.userInterfaceStyle == .dark ? UIColor.systemBackground : UIColor(red: 0.9804, green: 0.9725, blue: 0.9529, alpha: 1)
     })
     static let soft = accent.opacity(0.08)
     static let line = accent.opacity(0.12)
     static let brandGradient = LinearGradient(colors: [accent, violet], startPoint: .topLeading, endPoint: .bottomTrailing)
     static let ambientGradient = LinearGradient(colors: [accent.opacity(0.07), violet.opacity(0.06), paper.opacity(0.4)], startPoint: .topLeading, endPoint: .bottomTrailing)
-}
-
-private struct ReaderBrandMark: View {
-    var size: CGFloat = 40
-    var body: some View {
-        Image("ReaderBrand").resizable().scaledToFit().frame(width: size, height: size)
-            .clipShape(RoundedRectangle(cornerRadius: size * 0.23, style: .continuous))
-            .accessibilityHidden(true)
-    }
 }
 
 private struct ReaderActionStyle: ButtonStyle {
@@ -45,383 +38,598 @@ private struct ReaderActionStyle: ButtonStyle {
 
 struct ReaderScreen: View {
     @EnvironmentObject var store: ReaderStore
+    @AppStorage("welcomeCompleted") private var welcomed = false
+    @AppStorage("questionWritingIntroductionShown") private var introduced = false
+    @AppStorage("pencilInputIntroductionShown") private var pencilIntroduced = false
+    @AppStorage("appearance") private var appearance = "System"
+    @State private var reading = true
     @State private var importing = false
-    @State private var library = false
-    @State private var importAfterLibrary = false
     @State private var settings = false
+    @State private var drawer = false
+    @State private var searching = false
+    @State private var query = ""
     @State private var jumping = false
+    @State private var exportSheet = false
+    @State private var documentInfo = false
+    @State private var documentSettings = false
+    @State private var settingsCategory = "General"
+    @State private var drawerSection = 0
+    @State private var expandedThread: UUID?
+    @State private var renaming = false
+    @State private var remove = false
+    @State private var newName = ""
+    @State private var shared: ShareFile?
     @State private var pageText = ""
-    @State private var showAI = true
-    @State private var mobileAI = false
+    @State private var scrubber = 1.0
     var body: some View {
         GeometryReader { geometry in
-            VStack(spacing: 0) {
-                documentTabs
-                if store.document != nil {
-                    documentToolbar(wide: geometry.size.width >= 900)
-                    WritingToolbar().environmentObject(store)
-                }
-                Rectangle().fill(ReaderStyle.line).frame(height: 1)
-                HStack(spacing: 0) {
-                    ZStack {
-                        if store.document != nil {
-                            PDFReader(store: store)
-                        } else {
-                            ReaderWelcome { importing = true }
-                        }
-                    }.frame(maxWidth: .infinity, maxHeight: .infinity)
-                    if geometry.size.width >= 900 && showAI {
-                        Rectangle().fill(ReaderStyle.line).frame(width: 1)
-                        ReplyPane().frame(width: geometry.size.width >= 1200 ? 340 : 300)
+            if !welcomed && store.books.isEmpty {
+                WelcomeScreen(open: { importing = true }, sample: { welcomed = true; store.openSample(); reading = true })
+            } else if reading, store.document != nil {
+                ZStack(alignment: .top) {
+                    PDFReader(store: store)
+                    AnswerOverlay(store: store, viewport: store.answerViewport, expanded: $expandedThread)
+                    if !store.chromeHidden || searching || drawer { toolbar(width: geometry.size.width) }
+                    if drawer {
+                        HStack(spacing: 0) {
+                            PageDrawer(query: query, searching: searching, section: $drawerSection, close: { drawer = false }).frame(width: min(310, geometry.size.width - 48))
+                            Color.black.opacity(0.06).contentShape(Rectangle()).onTapGesture { drawer = false }
+                        }.padding(.top, 56)
                     }
-                }
-            }.background(ReaderStyle.canvas)
+                    VStack {
+                        Spacer()
+                        if !introduced {
+                            HStack {
+                                Text("Write normally with Pencil.\nEnd a question with ? to ask.").font(.system(size: 12)).lineSpacing(4)
+                                Button("Got it") { introduced = true }.font(.system(size: 12, weight: .semibold))
+                            }.padding(14).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14)).padding(.bottom, 10)
+                        }
+                        if store.firstPencilContact && !pencilIntroduced {
+                            Text("Pencil writes. Finger scrolls and zooms.").font(.system(size: 11)).padding(12)
+                                .background(.regularMaterial, in: Capsule()).padding(.bottom, 10)
+                                .task { introduced = true; try? await Task.sleep(for: .seconds(4)); pencilIntroduced = true }
+                        }
+                        if expandedThread == nil { FloatingPenPalette().environmentObject(store) }
+                    }.padding(.bottom, 28).frame(maxWidth: .infinity).allowsHitTesting(true)
+                    VStack { Spacer(); HStack { Spacer();
+                        Button { scrubber = Double(store.page); pageText = String(store.page); jumping = true } label: {
+                            Text("\(store.page) / \(store.document?.pageCount ?? 0)").font(.system(size: 11)).monospacedDigit()
+                                .foregroundStyle(Color.primary.opacity(0.45)).padding(12).background(.ultraThinMaterial, in: Capsule())
+                        }.buttonStyle(.plain).accessibilityLabel("跳转页码")
+                    }}.padding(.bottom, 8).padding(.trailing, 10).allowsHitTesting(true)
+                }.background(ReaderStyle.canvas)
+            } else {
+                LibraryScreen(open: { book in store.open(book); reading = store.document != nil }, importPDF: { importing = true }, settings: { settingsCategory = "General"; settings = true })
+            }
         }.tint(ReaderStyle.accent)
-        .fileImporter(isPresented: $importing, allowedContentTypes: [.pdf]) { result in
-            switch result { case .success(let url): store.importPDF(url); case .failure(let error): store.error = error.localizedDescription }
-        }
-        .sheet(isPresented: $library, onDismiss: {
-            if importAfterLibrary { importAfterLibrary = false; importing = true }
-        }) {
-            ReaderLibrary(open: { book in store.open(book); library = false }, importPDF: { importAfterLibrary = true; library = false })
-        }
-        .sheet(isPresented: $settings) { ReaderSettings().tint(ReaderStyle.accent) }
-        .sheet(isPresented: $mobileAI) {
-            NavigationStack { ReplyPane().toolbar { Button("完成") { mobileAI = false } } }
-                .tint(ReaderStyle.accent)
-        }
-        .alert("跳转页面", isPresented: $jumping) {
-            TextField("PDF 页码", text: $pageText).keyboardType(.numberPad)
-            Button("跳转") { if let number = Int(pageText) { store.jump(number) } else { store.error = "请输入整数页码。" } }
-            Button("取消", role: .cancel) {}
-        } message: { Text("输入 PDF 文件的页序号（不是印刷页码）") }
-        .alert("提示", isPresented: Binding(get: { store.error != nil }, set: { if !$0 { store.error = nil } })) {
-            Button("知道了") { store.error = nil }
-        } message: { Text(store.error ?? "") }
+            .onChange(of: store.firstPencilContact) { _, contact in if contact { introduced = true } }
+            .preferredColorScheme(appearance == "Light" ? .light : appearance == "Dark" ? .dark : nil)
+            .fileImporter(isPresented: $importing, allowedContentTypes: [.pdf]) { result in
+                switch result {
+                case .success(let url):
+                    store.importPDF(url)
+                    if store.document != nil { welcomed = true; reading = true }
+                case .failure: store.error = "无法打开所选文档。"
+                }
+            }
+            .sheet(isPresented: $settings) { ReaderSettings(initialCategory: settingsCategory) }
+            .popover(isPresented: $documentSettings) {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("Document Settings").font(.headline)
+                    Text(store.currentBook?.name ?? "PDF").font(.subheadline).foregroundStyle(.secondary)
+                    Button("Rename") { documentSettings = false; newName = store.currentBook?.name ?? ""; renaming = true }
+                    Button("Document Info") { documentSettings = false; documentInfo = true }
+                    Button("Export") { documentSettings = false; exportSheet = true }
+                    Button("Remove from Library", role: .destructive) { documentSettings = false; remove = true }
+                }.padding(24).frame(width: 280).presentationCompactAdaptation(.popover)
+            }
+            .sheet(isPresented: Binding(get: { store.consentQuestion != nil }, set: { if !$0 { store.deferAIPrivacy() } })) { AIPrivacySheet() }
+            .sheet(item: $shared) { file in ShareSheet(url: file.url) }
+            .sheet(isPresented: $exportSheet) { ExportSheet { kind in if let book = store.currentBook { export(book, kind: kind) } } }
+            .popover(isPresented: $documentInfo) {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text(store.currentBook?.name ?? "文档").font(.headline)
+                    Text("\(store.document?.pageCount ?? 0) 页 · PDF")
+                    Text("PDF、笔迹与批注保存在此 iPad。")
+                }.font(.subheadline).padding(24).frame(width: 300)
+            }
+            .popover(isPresented: $jumping) {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("跳转页码").font(.headline)
+                    TextField("页码", text: $pageText).keyboardType(.numberPad).textFieldStyle(.roundedBorder)
+                    if let count = store.document?.pageCount, count > 1 {
+                        Slider(value: $scrubber, in: 1...Double(count), step: 1).onChange(of: scrubber) { _, value in pageText = String(Int(value)) }
+                    }
+                    Button("跳转") { if let page = Int(pageText) { store.jump(page); jumping = false } }.buttonStyle(.borderedProminent)
+                }.padding(24).frame(width: 270).presentationCompactAdaptation(.popover)
+            }
+            .alert("重命名", isPresented: $renaming) {
+                TextField("文档名称", text: $newName)
+                Button("保存") { if let book = store.currentBook { store.rename(book, to: newName) } }
+                Button("取消", role: .cancel) {}
+            }
+            .alert("从书库移除？", isPresented: $remove) {
+                Button("移除", role: .destructive) { if let book = store.currentBook { Task { await store.removeBook(book); reading = false } } }
+                Button("取消", role: .cancel) {}
+            } message: { Text("此文档的 PDF、手写和批注将从本机删除。") }
+            .alert("提示", isPresented: Binding(get: { store.error != nil }, set: { if !$0 { store.error = nil } })) {
+                Button("知道了") { store.error = nil }
+            } message: { Text(store.error ?? "") }
     }
-    private var documentTabs: some View {
+    private func toolbar(width: CGFloat) -> some View {
         HStack(spacing: 0) {
-            Button { library = true } label: {
-                Image(systemName: "chevron.left").font(.system(size: 15, weight: .semibold)).frame(width: 48, height: 44)
-            }.accessibilityLabel("返回书库")
-            ScrollViewReader { proxy in
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 4) {
-                        if store.openBookIDs.isEmpty {
-                            Text("文档").font(.system(size: 13, weight: .medium)).padding(.horizontal, 18).frame(height: 44)
-                        }
-                        ForEach(store.openBookIDs, id: \.self) { id in
-                            if let book = store.books.first(where: { $0.id == id }) {
-                                documentTab(book).id(id)
-                            }
-                        }
-                    }.padding(.horizontal, 4)
+            Button { store.flush(); store.invalidateRecognition(); reading = false; drawer = false; expandedThread = nil } label: { Image(systemName: "chevron.left").frame(width: 44, height: 52) }.accessibilityLabel("返回 Library")
+            Button { withAnimation(.easeOut(duration: 0.2)) { drawerSection = 0; drawer.toggle() }; if store.bookIndex == nil { store.buildIndex() } } label: { Image(systemName: "square.grid.2x2").frame(width: 44, height: 52) }.accessibilityLabel("页面、目录和标记")
+            if searching {
+                TextField("搜索此 PDF…", text: $query).font(.system(size: 14)).textInputAutocapitalization(.never).autocorrectionDisabled()
+                Button { searching = false; query = ""; drawer = false } label: { Image(systemName: "xmark").frame(width: 44, height: 52) }.accessibilityLabel("结束搜索")
+            } else {
+                if width >= 600 {
+                    Menu {
+                        Button("重命名") { newName = store.currentBook?.name ?? ""; renaming = true }
+                        Button("文档信息") { documentInfo = true }
+                        Button("导出批注 PDF") { if let book = store.currentBook { export(book, kind: .annotated) } }
+                        Button("分享原始 PDF") { if let book = store.currentBook { export(book, kind: .original) } }
+                        Button("从 Library 移除", role: .destructive) { remove = true }
+                    } label: { Text(store.currentBook?.name ?? "文档").font(.system(size: 14, weight: .medium)).lineLimit(1).truncationMode(.middle).frame(maxWidth: .infinity).padding(.horizontal, 12) }
+                } else { Spacer(minLength: 0) }
+                Button { searching = true; drawer = true; if store.bookIndex == nil { store.buildIndex() } } label: { Image(systemName: "magnifyingglass").frame(width: 44, height: 52) }.accessibilityLabel("搜索 PDF")
+                if width >= 600 {
+                    Button { store.toggleBookmark() } label: { Image(systemName: store.bookmarks.contains(store.page) ? "bookmark.fill" : "bookmark").frame(width: 44, height: 52) }.accessibilityLabel("书签当前页")
                 }
-                .onChange(of: store.currentBook?.id) { _, id in
-                    if let id { withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo(id, anchor: .center) } }
-                }
-                .onAppear { if let id = store.currentBook?.id { proxy.scrollTo(id, anchor: .center) } }
+                Menu {
+                    if store.returnPage != nil { Button("返回刚才的阅读位置") { store.returnToReading() } }
+                    Button("跳转页码") { scrubber = Double(store.page); pageText = String(store.page); jumping = true }
+                    Button("问题与标记") { drawerSection = 2; drawer = true; if store.bookIndex == nil { store.buildIndex() } }
+                    if width < 600 { Button("书签当前页") { store.toggleBookmark() }; Button("重命名") { newName = store.currentBook?.name ?? ""; renaming = true } }
+                    Button("阅读外观") { settingsCategory = "Reading"; settings = true }
+                    Button("导出") { exportSheet = true }
+                    Button("文档设置") { documentSettings = true }
+                    Text(store.saveStatus)
+                } label: { Image(systemName: "ellipsis").frame(width: 44, height: 52) }.accessibilityLabel("更多文档操作")
             }
-            Button { importing = true } label: {
-                Image(systemName: "plus").font(.system(size: 17)).frame(width: 48, height: 44)
-            }.accessibilityLabel("导入 PDF 并打开新标签页")
-            if store.document == nil {
-                Button { settings = true } label: { Image(systemName: "gearshape").frame(width: 44, height: 44) }.accessibilityLabel("设置")
-            }
-        }.buttonStyle(.plain).foregroundStyle(ReaderStyle.accent)
-            .background(ReaderStyle.accent.opacity(0.12))
+        }.buttonStyle(.plain).font(.system(size: 17)).padding(.horizontal, 8).frame(height: 56)
+            .background(.regularMaterial).overlay(alignment: .bottom) { Rectangle().fill(ReaderStyle.line).frame(height: 0.5) }
     }
-    private func documentTab(_ book: Book) -> some View {
-        let selected = store.currentBook?.id == book.id
-        return HStack(spacing: 0) {
-            Button {
-                if !selected { store.open(book) }
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "doc.text").font(.system(size: 12))
-                    Text(book.name).font(.system(size: 12, weight: selected ? .semibold : .regular))
-                        .lineLimit(1).truncationMode(.middle).frame(minWidth: 80, maxWidth: 180, alignment: .leading)
-                }.padding(.leading, 14).padding(.trailing, 8).frame(height: 44)
-            }.accessibilityAddTraits(selected ? .isSelected : [])
-            Button { store.closeTab(book.id) } label: {
-                Image(systemName: "xmark").font(.system(size: 10, weight: .semibold)).frame(width: 36, height: 44)
-            }.accessibilityLabel("关闭标签：\(book.name)")
-        }.background(selected ? ReaderStyle.paper : Color.clear, in: UnevenRoundedRectangle(topLeadingRadius: 9, topTrailingRadius: 9))
-            .overlay(alignment: .bottom) { Rectangle().fill(selected ? ReaderStyle.accent : Color.clear).frame(height: 2) }
-    }
-    private func documentToolbar(wide: Bool) -> some View {
-        HStack(spacing: 3) {
-            Button { store.bridge?.undo() } label: { Image(systemName: "arrow.uturn.backward").frame(width: 44, height: 44) }.accessibilityLabel("撤销")
-            Button { store.bridge?.redo() } label: { Image(systemName: "arrow.uturn.forward").frame(width: 44, height: 44) }.accessibilityLabel("重做")
-            toolbarDivider
-            Button { store.jump(store.page - 1) } label: { Image(systemName: "chevron.left").frame(width: 40, height: 44) }.disabled(store.page <= 1).accessibilityLabel("上一页")
-            Button("\(store.page) / \(store.document?.pageCount ?? 0)") { pageText = String(store.page); jumping = true }
-                .font(.system(size: 12, weight: .medium)).monospacedDigit().frame(minWidth: 65, minHeight: 44).accessibilityLabel("跳转页码")
-            Button { store.jump(store.page + 1) } label: { Image(systemName: "chevron.right").frame(width: 40, height: 44) }.disabled(store.page >= (store.document?.pageCount ?? 0)).accessibilityLabel("下一页")
-            Spacer(minLength: 0)
-            if store.busy { ProgressView().controlSize(.small).padding(.horizontal, 8).accessibilityLabel("AI 正在处理") }
-            if store.automaticError != nil {
-                Button { Task { await store.retryAutomaticQuestion() } } label: { Image(systemName: "arrow.clockwise").frame(width: 44, height: 44) }.disabled(store.busy).accessibilityLabel("重试 AI 回复")
-            }
-            Button { store.autoReply.toggle() } label: {
-                Image(systemName: store.autoReply ? "sparkles" : "pause.circle").frame(width: 44, height: 44)
-                    .background(store.autoReply ? ReaderStyle.soft : Color.clear, in: RoundedRectangle(cornerRadius: 8))
-            }.accessibilityLabel(store.autoReply ? "暂停停笔自动回复" : "开启停笔自动回复")
-            Button { if wide { withAnimation(.easeInOut(duration: 0.2)) { showAI.toggle() } } else { mobileAI = true } } label: {
-                Image(systemName: "sidebar.right").frame(width: 44, height: 44)
-                    .background(showAI && wide ? ReaderStyle.soft : Color.clear, in: RoundedRectangle(cornerRadius: 8))
-            }.accessibilityLabel("AI 页边栏")
-            Menu {
-                Text(store.saveStatus)
-                Text(store.status)
-                Button { importing = true } label: { Label("导入 PDF", systemImage: "plus") }
-                Button { settings = true } label: { Label("阅读与书写设置", systemImage: "gearshape") }
-            } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44) }.accessibilityLabel("文档菜单与保存状态")
-        }.font(.system(size: 17)).buttonStyle(.plain).foregroundStyle(ReaderStyle.accent)
-            .padding(.horizontal, 12).padding(.vertical, 3).background(ReaderStyle.paper)
-            .overlay(alignment: .bottom) { Rectangle().fill(ReaderStyle.line).frame(height: 1) }
-    }
-    private var toolbarDivider: some View {
-        Rectangle().fill(ReaderStyle.line).frame(width: 1, height: 22).padding(.horizontal, 6)
+    private func export(_ book: Document, kind: ExportKind) {
+        Task { do { shared = ShareFile(url: try await store.export(book, kind: kind)) } catch { store.error = "无法准备导出，请稍后再试。" } }
     }
 }
 
-private struct ReaderWelcome: View {
+private struct WelcomeScreen: View {
     let open: () -> Void
+    let sample: () -> Void
     var body: some View {
         VStack(spacing: 18) {
-            ReaderBrandMark(size: 96)
-            Text("打开文档").font(.system(size: 23, weight: .semibold))
-            Text("从书库打开一本书，或导入 PDF 开始书写。")
-                .font(.system(size: 14)).foregroundStyle(.secondary).multilineTextAlignment(.center)
-            Button(action: open) { Label("导入 PDF", systemImage: "plus") }.buttonStyle(ReaderActionStyle(prominent: true))
-        }.padding(30).frame(maxWidth: .infinity, maxHeight: .infinity).background(ReaderStyle.canvas)
+            Spacer()
+            Image("ReaderBrand").resizable().scaledToFit().frame(width: 120, height: 120).clipShape(RoundedRectangle(cornerRadius: 27))
+            Text("Read. Write. Ask.").font(.system(size: 30, weight: .semibold, design: .serif))
+            Text("Write where you're stuck.\nAskInk answers right there.").font(.system(size: 15)).foregroundStyle(.secondary).multilineTextAlignment(.center)
+            VStack(alignment: .leading, spacing: 22) {
+                Text("The gradient points in the\ndirection of greatest increase.").font(.system(size: 17, design: .serif)).lineSpacing(5)
+                HStack { Spacer(); Text("why?").italic().font(.system(size: 23, design: .serif)).foregroundStyle(ReaderStyle.accent); Image(systemName: "sparkles").foregroundStyle(ReaderStyle.accent) }
+            }.padding(28).frame(maxWidth: 380).background(Color.white.opacity(0.6), in: RoundedRectangle(cornerRadius: 18)).padding(.vertical, 18)
+            Spacer()
+            Button(action: open) { Text("Open a PDF").frame(maxWidth: 330) }.buttonStyle(ReaderActionStyle(prominent: true))
+            Button("Try a sample", action: sample).font(.system(size: 14)).padding(10)
+            Text("Your PDFs and handwriting stay on your iPad.").font(.system(size: 10)).foregroundStyle(.secondary).padding(.bottom, 24)
+        }.padding(24).frame(maxWidth: .infinity, maxHeight: .infinity).background(ReaderStyle.canvas)
     }
 }
 
-private struct InkToolIcon: View {
-    var tool: InkTool
-    var body: some View {
-        if let image = UIImage(systemName: tool.symbol) {
-            Image(uiImage: image).renderingMode(.template)
-        } else {
-            Image(systemName: "pencil")
-        }
-    }
-}
-
-private struct WritingToolbar: View {
+private struct FloatingPenPalette: View {
     @EnvironmentObject var store: ReaderStore
-    @State private var widthSettings = false
+    @AppStorage("paletteDock") private var dock = "Bottom"
+    @State private var penSettings = false
     @State private var colorSettings = false
-    private let colors: [Color] = [.black, .blue, .red]
+    @State private var widthSettings = false
+    @State private var eraserSettings = false
+    @State private var availableWidth: CGFloat = 768
+    @GestureState private var drag = CGSize.zero
+    private var penSelected: Bool { ![InkTool.marker, .eraser, .lasso].contains(store.tool) }
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 5) {
-                ForEach(InkTool.allCases) { tool in
-                    Button { store.tool = tool } label: {
-                        InkToolIcon(tool: tool).font(.system(size: 23, weight: .regular))
-                            .frame(width: 44, height: 46)
-                            .foregroundStyle(store.tool == tool ? ReaderStyle.accent : Color.secondary)
-                            .background(store.tool == tool ? ReaderStyle.soft : Color.clear, in: RoundedRectangle(cornerRadius: 10))
-                            .overlay(alignment: .bottom) { Capsule().fill(store.tool == tool ? ReaderStyle.accent : Color.clear).frame(width: 18, height: 2).padding(.bottom, 3) }
-                    }.accessibilityLabel(tool.title).accessibilityAddTraits(store.tool == tool ? .isSelected : [])
+        GeometryReader { geometry in
+            HStack(spacing: geometry.size.width < 500 ? 1 : 3) {
+                if store.paletteCollapsed {
+                    Button { store.paletteCollapsed = false; store.chromeHidden = false } label: { Image(systemName: "pencil.tip").font(.system(size: 22)).frame(width: 48, height: 48) }
+                } else {
+                    Button { if penSelected { penSettings = true } else { store.tool = store.preferredPen } } label: { icon("pencil.tip", selected: penSelected) }.accessibilityLabel("笔；再次点击设置笔触")
+                    Button { store.tool = .marker } label: { icon("highlighter", selected: store.tool == .marker) }.accessibilityLabel("高光笔")
+                    Button { if store.tool == .eraser { eraserSettings = true } else { store.tool = .eraser } } label: { icon("eraser", selected: store.tool == .eraser) }.accessibilityLabel("橡皮；再次点击设置擦除模式")
+                    Button { store.tool = .lasso } label: { icon("lasso", selected: store.tool == .lasso) }.accessibilityLabel("套索选择和移动笔迹")
+                    Rectangle().fill(ReaderStyle.line).frame(width: 1, height: 20).padding(.horizontal, 4)
+                    Button { colorSettings = true } label: { Circle().fill(store.color).frame(width: 20, height: 20).frame(width: availableWidth < 400 ? 32 : 40, height: 48) }.accessibilityLabel("当前颜色").disabled(store.tool == .eraser || store.tool == .lasso)
+                    Button { widthSettings = true } label: { Capsule().fill(store.tool == .eraser ? ReaderStyle.accent : store.color).frame(width: 21, height: min(12, max(2, store.width))).frame(width: availableWidth < 400 ? 32 : 40, height: 48) }.accessibilityLabel("当前粗细").disabled(store.tool == .lasso || (store.tool == .eraser && store.eraserMode == .stroke))
+                    Button { store.bridge?.undo() } label: { icon("arrow.uturn.backward") }.accessibilityLabel("撤销")
+                    Button { store.bridge?.redo() } label: { icon("arrow.uturn.forward") }.accessibilityLabel("重做")
                 }
-                divider
-                ForEach([1.0, 2.5, 4.5], id: \.self) { width in
+            }.buttonStyle(.plain).foregroundStyle(ReaderStyle.accent)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: store.paletteCollapsed ? 24 : 16))
+                .shadow(color: .black.opacity(0.08), radius: 12, y: 4)
+                .fixedSize().offset(drag)
+                .frame(maxWidth: .infinity, alignment: dock == "Left" ? .leading : dock == "Right" ? .trailing : .center)
+                .padding(.horizontal, 20)
+                .gesture(LongPressGesture(minimumDuration: 0.35).sequenced(before: DragGesture()).updating($drag) { value, state, _ in
+                    if case .second(true, let gesture?) = value { state = gesture.translation }
+                }.onEnded { value in
+                    if case .second(true, let gesture?) = value {
+                        if gesture.translation.width < -60 { dock = "Left" } else if gesture.translation.width > 60 { dock = "Right" } else { dock = "Bottom" }
+                    }
+                })
+                .contextMenu { Toggle("Keep Open", isOn: $store.palettePinned); Button("收起") { store.paletteCollapsed = true } }
+                .popover(isPresented: $penSettings) { PenSettings().environmentObject(store).presentationCompactAdaptation(.popover) }
+                .popover(isPresented: $colorSettings) { InkColorSettings().environmentObject(store).presentationCompactAdaptation(.popover) }
+                .popover(isPresented: $widthSettings) { InkWidthSettings().environmentObject(store).presentationCompactAdaptation(.popover) }
+                .popover(isPresented: $eraserSettings) {
+                    VStack(alignment: .leading, spacing: 18) {
+                        Picker("擦除模式", selection: $store.eraserMode) { ForEach(InkEraserMode.allCases) { Text($0.title).tag($0) } }.pickerStyle(.segmented)
+                        if store.eraserMode == .partial { InkWidthSettings().environmentObject(store) }
+                        Text("局部擦除只擦掉经过的区域；整笔擦除删除碰到的笔画。").font(.caption).foregroundStyle(.secondary)
+                    }.padding(20).frame(width: 310).presentationCompactAdaptation(.popover)
+                }
+            .onAppear { availableWidth = geometry.size.width }
+            .onChange(of: geometry.size.width) { _, width in availableWidth = width }
+        }.frame(height: 48)
+    }
+    private func icon(_ symbol: String, selected: Bool = false) -> some View {
+        Image(systemName: symbol).font(.system(size: 20)).frame(width: availableWidth < 400 ? 32 : 40, height: 48)
+            .background(selected ? ReaderStyle.soft : Color.clear, in: RoundedRectangle(cornerRadius: 10))
+    }
+}
+private struct InkColorSettings: View {
+    @EnvironmentObject var store: ReaderStore
+    var body: some View {
+        VStack(spacing: 18) {
+            HStack {
+                ForEach([Color.black, .blue, .red, .yellow, .green], id: \.self) { color in
+                    Button { store.color = color } label: {
+                        Circle().fill(color).frame(width: 24, height: 24).frame(width: 40, height: 44)
+                    }.accessibilityLabel(color.description)
+                }
+            }.buttonStyle(.plain)
+            ColorPicker("自定义颜色", selection: $store.color, supportsOpacity: false)
+        }.padding(24).frame(width: 290)
+    }
+}
+private struct InkWidthSettings: View {
+    @EnvironmentObject var store: ReaderStore
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                ForEach(store.tool.presetWidths, id: \.self) { width in
                     Button { store.width = width } label: {
                         Circle().fill(store.tool == .eraser ? ReaderStyle.accent : store.color)
-                            .frame(width: width * 2 + 3, height: width * 2 + 3).frame(width: 34, height: 44)
-                            .background(abs(store.width - width) < 0.05 ? ReaderStyle.soft : Color.clear, in: RoundedRectangle(cornerRadius: 8))
-                    }.accessibilityLabel("笔触粗细 \(width)").accessibilityAddTraits(abs(store.width - width) < 0.05 ? .isSelected : [])
+                            .frame(width: min(22, 4 + width * 2), height: min(22, 4 + width * 2)).frame(width: 52, height: 44)
+                            .background(abs(store.width - width) < 0.1 ? ReaderStyle.soft : Color.clear, in: RoundedRectangle(cornerRadius: 9))
+                    }.accessibilityLabel("\(width.formatted()) 点")
                 }
-                Button { widthSettings = true } label: {
-                    HStack(spacing: 4) {
-                        Text(store.width, format: .number.precision(.fractionLength(1))).font(.system(size: 11)).monospacedDigit()
-                        Image(systemName: "chevron.down").font(.system(size: 8))
-                    }.frame(minWidth: 40, minHeight: 44)
-                }.accessibilityLabel("自定义笔触粗细")
-                    .popover(isPresented: $widthSettings) {
-                        VStack(alignment: .leading, spacing: 16) {
-                            HStack { Text("笔触粗细").font(.headline); Spacer(); Text(store.width, format: .number.precision(.fractionLength(1))).monospacedDigit() }
-                            Slider(value: $store.width, in: 0.8...6).accessibilityLabel("笔触粗细")
-                        }.padding(24).frame(width: 280).tint(ReaderStyle.accent).presentationCompactAdaptation(.popover)
-                    }
-                divider
-                ForEach(colors, id: \.self) { color in
-                    Button { store.color = color } label: {
-                        Circle().fill(color).frame(width: 22, height: 22).padding(5)
-                            .overlay(Circle().stroke(store.color == color ? ReaderStyle.accent : Color.clear, lineWidth: 1.5))
-                            .frame(width: 36, height: 44)
-                    }.accessibilityLabel(colorName(color)).accessibilityAddTraits(store.color == color ? .isSelected : [])
-                }
-                Button { colorSettings = true } label: {
-                    Circle().fill(AngularGradient(colors: [.red, .yellow, .green, .cyan, .blue, .purple, .red], center: .center))
-                        .frame(width: 22, height: 22).frame(width: 40, height: 44)
-                }.accessibilityLabel("更多笔迹颜色")
-                    .popover(isPresented: $colorSettings) {
-                        VStack(alignment: .leading, spacing: 18) {
-                            Text("笔迹颜色").font(.headline)
-                            HStack(spacing: 8) {
-                                ForEach([Color.black, .blue, .red, .yellow, .green, .pink], id: \.self) { color in
-                                    Button { store.color = color; colorSettings = false } label: {
-                                        Circle().fill(color).frame(width: 26, height: 26).frame(width: 36, height: 44)
-                                    }.accessibilityLabel(colorName(color))
-                                }
-                            }
-                            ColorPicker("自定义颜色", selection: $store.color, supportsOpacity: false)
-                        }.padding(24).tint(ReaderStyle.accent).presentationCompactAdaptation(.popover)
-                    }
-            }.buttonStyle(.plain).padding(.horizontal, 16).padding(.vertical, 5)
-        }.foregroundStyle(ReaderStyle.accent).background(ReaderStyle.paper)
-    }
-    private var divider: some View { Rectangle().fill(ReaderStyle.line).frame(width: 1, height: 24).padding(.horizontal, 8) }
-    private func colorName(_ color: Color) -> String {
-        color == .black ? "黑色" : color == .blue ? "蓝色" : color == .red ? "红色" : color == .yellow ? "黄色" : color == .green ? "绿色" : "粉色"
+            }.buttonStyle(.plain)
+            Text("\(store.width.formatted(.number.precision(.fractionLength(1)))) 点").font(.caption).foregroundStyle(.secondary)
+        }.padding(16)
     }
 }
-
-struct ReplyPane: View {
+private struct PenSettings: View {
     @EnvironmentObject var store: ReaderStore
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 12) {
-                Image(systemName: "sparkles").font(.system(size: 19)).foregroundStyle(ReaderStyle.accent)
-                    .frame(width: 40, height: 40).background(ReaderStyle.ambientGradient, in: RoundedRectangle(cornerRadius: 12))
-                VStack(alignment: .leading, spacing: 5) {
-                    HStack(spacing: 7) { Text("AI 批注").font(.system(size: 16, weight: .semibold)); Text("AI").font(.system(size: 9, weight: .bold)).foregroundStyle(ReaderStyle.accent).padding(.horizontal, 6).padding(.vertical, 3).background(ReaderStyle.soft, in: Capsule()) }
-                    Text(store.autoReply ? "停笔后自动回答" : "自动回复已暂停").font(.system(size: 11)).foregroundStyle(.secondary)
-                }
-                Spacer()
-            }.padding(22)
-            Rectangle().fill(ReaderStyle.line).frame(height: 1)
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    if store.replies.isEmpty { welcome }
-                    ForEach(store.replies) { reply in
-                        VStack(alignment: .leading, spacing: 14) {
-                            HStack { Button { store.jump(reply.page) } label: { Label("第 \(reply.page) 页", systemImage: "arrow.up.right") }; Spacer(); Text("页边对话").foregroundStyle(.tertiary) }.font(.system(size: 10))
-                            Text(reply.question).font(.system(size: 15, weight: .medium)).frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(12).background(ReaderStyle.soft, in: RoundedRectangle(cornerRadius: 10))
-                            if let ink = reply.inkImageDataURL, let comma = ink.firstIndex(of: ","),
-                               let data = Data(base64Encoded: String(ink[ink.index(after: comma)...])), let image = UIImage(data: data) {
-                                DisclosureGroup("查看原始手写问题") { Image(uiImage: image).resizable().scaledToFit() }
-                                    .font(.caption)
-                            }
-                            Text(reply.answer).font(.system(size: 14)).lineSpacing(6).textSelection(.enabled)
-                            DisclosureGroup("查看引用正文") { Text(reply.source.isEmpty ? "此次使用附近正文图像。" : reply.source).font(.caption).lineSpacing(4).padding(.top, 8) }.font(.system(size: 11)).foregroundStyle(.secondary)
-                            Text(reply.model).font(.system(size: 9)).foregroundStyle(.tertiary)
-                        }.padding(16).background(ReaderStyle.paper, in: RoundedRectangle(cornerRadius: 16))
-                            .overlay(RoundedRectangle(cornerRadius: 16).stroke(ReaderStyle.line))
-                    }
-                }.padding(22)
+        VStack(alignment: .leading, spacing: 18) {
+            Text("Pen").font(.headline)
+            ForEach(InkTool.penStyles) { tool in
+                Button { store.tool = tool } label: { HStack { Text(tool.title); Spacer(); if store.tool == tool { Image(systemName: "checkmark") } } }.frame(minHeight: 35)
             }
-            HStack(spacing: 7) { Image(systemName: "lock.shield"); Text("本机识别 · 停笔自动回复") }
-                .font(.system(size: 10)).foregroundStyle(.secondary).padding(18).frame(maxWidth: .infinity)
-                .overlay(alignment: .top) { Rectangle().fill(ReaderStyle.line).frame(height: 1) }
-        }.background(ReaderStyle.paper)
-    }
-    private var welcome: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Image(systemName: "sparkles").font(.system(size: 28, weight: .light)).foregroundStyle(ReaderStyle.brandGradient).padding(.top, 28).padding(.bottom, 22)
-            Text("本书暂无 AI 批注").font(.system(size: 18, weight: .semibold)).lineSpacing(7).padding(.top, 12)
-            Text("在段落旁写下疑问，停笔后自动回复。\n我会结合附近正文，和你一起想。")
-                .font(.system(size: 12)).lineSpacing(6).foregroundStyle(.secondary).padding(.top, 16).padding(.bottom, 26)
-            example("理解一句话", "这里的自由是什么意思？")
-            example("追问一个观点", "为什么会这样？")
-            example("带着自己的判断", "我不同意作者这里。")
-            Label("把问题写在目标段落旁边，\n让每一次对话都有上下文。", systemImage: "pencil.tip")
-                .font(.system(size: 11)).lineSpacing(5).foregroundStyle(.secondary).padding(.top, 22)
-        }
-    }
-    private func example(_ title: String, _ question: String) -> some View {
-        VStack(alignment: .leading, spacing: 7) { Text(title).font(.system(size: 9)).foregroundStyle(.secondary); Text("「\(question)」").font(.system(size: 12)).foregroundStyle(ReaderStyle.accent) }
-            .padding(14).frame(maxWidth: .infinity, alignment: .leading).background(ReaderStyle.soft, in: RoundedRectangle(cornerRadius: 12)).padding(.bottom, 10)
+            Text("Thickness").font(.caption).foregroundStyle(.secondary)
+            InkWidthSettings().environmentObject(store)
+            Text("Color").font(.caption).foregroundStyle(.secondary)
+            HStack { ForEach([Color.black, .blue, .red, .yellow, .green], id: \.self) { color in Button { store.color = color } label: { Circle().fill(color).frame(width: 24, height: 24).frame(width: 40, height: 38) }.accessibilityLabel(color.description) } }
+        }.padding(24).frame(width: 270).tint(ReaderStyle.accent)
     }
 }
-
-private struct ReaderLibrary: View {
+private struct AIPrivacySheet: View {
     @EnvironmentObject var store: ReaderStore
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            Label("AskInk AI", systemImage: "sparkles").font(.title2.weight(.semibold))
+            Text("为回答这个问题，AskInk 会发送：\n\n• 你的手写问题\n• 附近正文\n• 必要时，相关区域的小幅图像\n\n不会上传整本 PDF。").font(.body).lineSpacing(5)
+            if ProviderKey.read(provider: AIProvider.selected).isEmpty {
+                Text("此版本使用你自己的 AI 连接。可在 Settings → AI → Advanced 配置；PDF 阅读和书写始终可离线使用。").font(.caption).foregroundStyle(.secondary)
+            }
+            Button("Continue") { Task { await store.acceptAIPrivacy() } }.buttonStyle(ReaderActionStyle(prominent: true))
+            Button("Not Now") { store.deferAIPrivacy() }.font(.subheadline)
+        }.padding(30).presentationDetents([.medium, .large]).interactiveDismissDisabled()
+    }
+}
+private struct ExportSheet: View {
+    let export: (ExportKind) -> Void
     @Environment(\.dismiss) private var dismiss
-    let open: (Book) -> Void
+    var body: some View {
+        NavigationStack { List(ExportKind.allCases) { kind in
+            Button { dismiss(); export(kind) } label: { VStack(alignment: .leading, spacing: 6) {
+                Text(kind.rawValue)
+                Text(kind == .original ? "原始文档" : kind == .annotated ? "包含手写与高光，批注合并到 PDF" : "PDF、可编辑笔迹、书签与 AI 对话").font(.caption).foregroundStyle(.secondary)
+            }.padding(.vertical, 10) }
+        }.navigationTitle("Export").toolbar { Button("完成") { dismiss() } } }.presentationDetents([.medium])
+    }
+}
+private struct LibraryScreen: View {
+    @EnvironmentObject var store: ReaderStore
+    let open: (Document) -> Void
     let importPDF: () -> Void
+    let settings: () -> Void
+    @State private var searching = false
+    @State private var query = ""
+    @State private var renamed: Document?
+    @State private var newName = ""
+    @State private var removing: Document?
+    @State private var shared: ShareFile?
+    private var filtered: [Document] { store.books.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) } }
+    private var recent: [Document] { Array(filtered.sorted { ($0.lastOpenedAt ?? $0.addedAt) > ($1.lastOpenedAt ?? $1.addedAt) }.prefix(3)) }
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("本机文档").font(.system(size: 20, weight: .semibold))
-                        Text("\(store.books.count) 本书 · 笔记与对话保存在本机").font(.caption).foregroundStyle(.secondary)
-                    }.padding(.top, 12)
+                    if searching { TextField("Search Library…", text: $query).textFieldStyle(.roundedBorder).autocorrectionDisabled() }
                     if store.books.isEmpty {
                         VStack(spacing: 18) {
                             Image(systemName: "books.vertical").font(.system(size: 40, weight: .light)).foregroundStyle(ReaderStyle.accent)
-                            Text("书架还空着，放入第一本书吧。").font(.subheadline).foregroundStyle(.secondary)
-                            Button(action: importPDF) { Label("导入 PDF", systemImage: "plus") }.buttonStyle(ReaderActionStyle(prominent: true))
-                        }.frame(maxWidth: .infinity).padding(.vertical, 60)
-                    }
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 200), spacing: 16)], spacing: 16) {
-                        ForEach(store.books) { book in
-                            Button { open(book) } label: {
-                                VStack(alignment: .leading, spacing: 14) {
-                                    ZStack {
-                                        RoundedRectangle(cornerRadius: 10).fill(ReaderStyle.soft)
-                                        Image(systemName: "book.closed").font(.system(size: 44, weight: .ultraLight)).foregroundStyle(ReaderStyle.accent)
-                                    }.frame(height: 130)
-                                    Text(book.name).font(.system(size: 14, weight: .medium)).foregroundStyle(.primary).lineLimit(2).frame(height: 38, alignment: .top)
-                                    HStack { Text("读到第 \(book.lastPage) 页"); Spacer(); Image(systemName: "arrow.up.right") }.font(.system(size: 11)).foregroundStyle(ReaderStyle.accent)
-                                }.padding(16).background(ReaderStyle.paper, in: RoundedRectangle(cornerRadius: 16))
-                                    .overlay(RoundedRectangle(cornerRadius: 16).stroke(ReaderStyle.line))
-                            }.buttonStyle(.plain).disabled(store.busy)
+                            Text("Your library is empty").font(.headline)
+                            Button(action: importPDF) { Label("Open a PDF", systemImage: "plus") }.buttonStyle(ReaderActionStyle(prominent: true))
+                        }.frame(maxWidth: .infinity).padding(.vertical, 100)
+                    } else {
+                        if query.isEmpty {
+                            Text("Continue Reading").font(.system(size: 20, weight: .semibold))
+                            ScrollView(.horizontal, showsIndicators: false) { HStack(spacing: 18) { ForEach(recent) { book in bookCard(book).frame(width: 175) } } }
                         }
+                        Text("Library").font(.system(size: 20, weight: .semibold))
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 155), spacing: 22)], spacing: 24) { ForEach(filtered) { book in bookCard(book) } }
                     }
-                }.padding(24)
-            }.background(ReaderStyle.canvas).navigationTitle("我的书库").navigationBarTitleDisplayMode(.inline)
-                .toolbar { ToolbarItem(placement: .cancellationAction) { Button("完成") { dismiss() } }; ToolbarItem(placement: .primaryAction) { Button(action: importPDF) { Image(systemName: "plus") }.accessibilityLabel("导入 PDF") } }
-        }.tint(ReaderStyle.accent)
+                }.padding(26)
+            }.background(ReaderStyle.canvas).navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .topBarLeading) { HStack(spacing: 10) { Image("ReaderBrand").resizable().scaledToFit().frame(width: 30, height: 30).clipShape(RoundedRectangle(cornerRadius: 7)); Text("My Library").font(.headline) } }
+                    ToolbarItemGroup(placement: .primaryAction) {
+                        Button { searching.toggle() } label: { Image(systemName: "magnifyingglass") }.accessibilityLabel("搜索书库")
+                        Menu { Button("Import PDF", action: importPDF); Button("Open from Files", action: importPDF) } label: { Image(systemName: "plus") }.accessibilityLabel("导入文档")
+                        Menu { Button("Settings", action: settings); Button("Help") { store.error = "Pencil 写字，手指滚动和缩放。以 ? 或 ？ 结束新手写来提问；点击答案旁的 ✦ 展开或追问。" }; Button("About AskInk") { store.error = "AskInk · Read. Write. Ask.\nPDF 与手写保存在你的 iPad。" } } label: { Image(systemName: "ellipsis") }.accessibilityLabel("书库菜单")
+                    }
+                }
+        }.sheet(item: $shared) { file in ShareSheet(url: file.url) }
+            .alert("Rename", isPresented: Binding(get: { renamed != nil }, set: { if !$0 { renamed = nil } })) {
+                TextField("Document name", text: $newName)
+                Button("Save") { if let book = renamed { store.rename(book, to: newName) }; renamed = nil }
+                Button("Cancel", role: .cancel) { renamed = nil }
+            }
+            .alert("Remove from Library?", isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } })) {
+                Button("Remove", role: .destructive) { if let book = removing { Task { await store.removeBook(book) } }; removing = nil }
+                Button("Cancel", role: .cancel) { removing = nil }
+            } message: { Text("The PDF, handwriting and threads will be removed from this iPad.") }
+    }
+    private func bookCard(_ book: Document) -> some View {
+        Button { open(book) } label: {
+            VStack(alignment: .leading, spacing: 9) {
+                BookCover(url: store.folder(book.id).appendingPathComponent("document.pdf")).frame(height: 175)
+                    .frame(maxWidth: .infinity).background(ReaderStyle.paper, in: RoundedRectangle(cornerRadius: 8))
+                    .clipShape(RoundedRectangle(cornerRadius: 8)).shadow(color: .black.opacity(0.05), radius: 6, y: 3)
+                HStack { Text(book.name).font(.system(size: 13, weight: .medium)).lineLimit(2); if book.favorite == true { Image(systemName: "star.fill").font(.caption).foregroundStyle(.orange) } }
+                Text("\(book.lastPage) / \(book.pageCount.map(String.init) ?? "—")").font(.system(size: 11)).foregroundStyle(.secondary)
+                Text(book.lastOpenedAt ?? book.addedAt, style: .relative).font(.system(size: 10)).foregroundStyle(.tertiary)
+            }.foregroundStyle(.primary)
+        }.buttonStyle(.plain).contextMenu {
+            Button("Open") { open(book) }
+            Button("Rename") { newName = book.name; renamed = book }
+            Button(book.favorite == true ? "Unfavorite" : "Favorite") { store.toggleFavorite(book) }
+            Button("Export Annotated PDF") { export(book, kind: .annotated) }
+            Button("Share") { export(book, kind: .original) }
+            Button("Remove from Library", role: .destructive) { removing = book }
+        }
+    }
+    private func export(_ book: Document, kind: ExportKind) {
+        Task { do { shared = ShareFile(url: try await store.export(book, kind: kind)) } catch { store.error = "Unable to prepare export." } }
+    }
+}
+private struct BookCover: View {
+    let url: URL
+    @State private var image: UIImage?
+    var body: some View {
+        Group { if let image { Image(uiImage: image).resizable().scaledToFit() } else { Image(systemName: "doc.text").font(.system(size: 36, weight: .light)).foregroundStyle(ReaderStyle.accent) } }
+            .task(id: url) {
+                let path = url
+                image = await Task.detached(priority: .utility) { PDFDocument(url: path)?.page(at: 0)?.thumbnail(of: CGSize(width: 300, height: 390), for: .cropBox) }.value
+            }
+    }
+}
+private struct PageDrawer: View {
+    @EnvironmentObject var store: ReaderStore
+    let query: String
+    let searching: Bool
+    @Binding var section: Int
+    let close: () -> Void
+    @State private var highlighted: [Int] = []
+    var body: some View {
+        VStack(spacing: 0) {
+            if searching {
+                Text("Search Results").font(.headline).padding(18)
+                if store.indexBuilding { Text("正在本机建立索引…").font(.caption).foregroundStyle(.secondary) }
+                List(store.searchResults) { source in Button { store.jumpToSource(source); close() } label: { VStack(alignment: .leading, spacing: 6) { Text("p.\(source.page)").font(.caption).foregroundStyle(.secondary); Text(source.text).font(.system(size: 12)).lineLimit(4) } } }
+                    .task(id: "\(query)|\(store.bookIndex?.sources.count ?? 0)") { try? await Task.sleep(for: .milliseconds(250)); if !Task.isCancelled { await store.searchBook(query, previousOnly: false) } }
+            } else {
+                Picker("Navigation", selection: $section) { Text("Pages").tag(0); Text("Outline").tag(1); Text("Marks").tag(2) }.pickerStyle(.segmented).padding(12)
+                if section == 0 {
+                    ScrollView { LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 14) {
+                        ForEach(1...max(1, store.document?.pageCount ?? 1), id: \.self) { number in
+                            Button { store.jump(number); close() } label: { VStack(spacing: 7) {
+                                PageThumbnail(number: number).frame(height: 145).overlay(RoundedRectangle(cornerRadius: 5).stroke(store.page == number ? ReaderStyle.accent : Color.clear, lineWidth: 2))
+                                Text("\(number)").font(.caption)
+                            }}.buttonStyle(.plain)
+                        }
+                    }.padding(14) }
+                } else if section == 1 {
+                    List { if let outline = store.document?.outlineRoot { OutlineRows(outline: outline, close: close) } else { Text("This PDF has no outline.").foregroundStyle(.secondary) } }
+                } else {
+                    List {
+                        Section("Bookmarks") { ForEach(store.bookmarks.sorted(), id: \.self) { number in Button("p.\(number)") { store.jump(number); close() } } }
+                        Section("Highlights") { ForEach(highlighted, id: \.self) { number in Button("p.\(number)") { store.jump(number); close() } } }
+                        Section("Questions") { ForEach(store.overlayReplies) { reply in Button("p.\(reply.page) · \(reply.question)") { store.jump(reply.page); close() }.lineLimit(2) } }
+                    }
+                }
+            }
+        }.background(ReaderStyle.paper).task(id: store.currentBook?.id) {
+            guard let book = store.currentBook else { return }
+            let directory = store.folder(book.id)
+            highlighted = await Task.detached(priority: .utility) {
+                (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil))?.compactMap { file -> Int? in
+                    guard file.pathExtension == "drawing", let number = Int(file.deletingPathExtension().lastPathComponent.replacingOccurrences(of: "page-", with: "")),
+                          let data = try? Data(contentsOf: file), let drawing = try? PKDrawing(data: data), drawing.strokes.contains(where: { $0.ink.inkType == .marker }) else { return nil }
+                    return number
+                }.sorted() ?? []
+            }.value
+        }
+    }
+}
+private struct PageThumbnail: View {
+    @EnvironmentObject var store: ReaderStore
+    let number: Int
+    @State private var image: UIImage?
+    var body: some View { Group { if let image { Image(uiImage: image).resizable().scaledToFit() } else { Rectangle().fill(ReaderStyle.soft) } }
+        .task(id: "\(store.currentBook?.id.uuidString ?? "")/\(number)") {
+            guard let book = store.currentBook else { return }; let url = store.folder(book.id).appendingPathComponent("document.pdf")
+            image = await Task.detached(priority: .utility) { PDFDocument(url: url)?.page(at: number - 1)?.thumbnail(of: CGSize(width: 180, height: 250), for: .cropBox) }.value
+        }
+    }
+}
+private struct OutlineRows: View {
+    @EnvironmentObject var store: ReaderStore
+    let outline: PDFOutline
+    let close: () -> Void
+    var body: some View {
+        ForEach(0..<outline.numberOfChildren, id: \.self) { index in
+            if let child = outline.child(at: index) {
+                if child.numberOfChildren > 0 {
+                    DisclosureGroup(child.label ?? "Chapter") { OutlineRows(outline: child, close: close) }
+                } else {
+                    Button(child.label ?? "Chapter") {
+                        if let page = child.destination?.page, let document = store.document { store.jump(document.index(for: page) + 1); close() }
+                    }
+                }
+            }
+        }
     }
 }
 
 struct ReaderSettings: View {
     @EnvironmentObject var store: ReaderStore
     @Environment(\.dismiss) private var dismiss
-    @State private var token = ProviderKey.read()
+    @State private var category: String?
+    init(initialCategory: String = "General") { _category = State(initialValue: initialCategory) }
+    @State private var deletingHistory = false
+    @State private var deletingData = false
+    @State private var restoringArchive = false
+    @AppStorage("appearance") private var appearance = "System"
+    @AppStorage("readingBackground") private var readingBackground = "Warm"
+    @AppStorage("toolbarAutoHide") private var autoHide = true
+    @AppStorage("rememberBookZoom") private var rememberZoom = true
+    @AppStorage("continuousScroll") private var continuous = true
+    @AppStorage("paletteDock") private var dock = "Bottom"
+    @AppStorage("allowSpoilers") private var allowSpoilers = false
+    @AppStorage("useContextImages") private var images = true
+    var body: some View {
+        NavigationSplitView {
+            List(["General", "Reading", "Pencil", "AI", "Data & Privacy", "About"], id: \.self,
+                 selection: Binding<String?>(get: { category }, set: { if let value = $0 { category = value } })) { Text($0) }
+                .navigationTitle("Settings").toolbar { Button("Done") { dismiss() } }
+        } detail: {
+            Form {
+                switch category ?? "General" {
+                case "General":
+                    Picker("Appearance", selection: $appearance) { ForEach(["System", "Light", "Dark"], id: \.self) { Text($0) } }
+                    LabeledContent("App Language", value: "Automatic")
+                case "Reading":
+                    Picker("Reading Background", selection: $readingBackground) { ForEach(["White", "Warm", "Dark"], id: \.self) { Text($0) } }
+                    Toggle("Toolbar Auto-Hide", isOn: $autoHide)
+                    Toggle("Remember Zoom Per Document", isOn: $rememberZoom)
+                    Toggle("Continuous Scroll", isOn: $continuous)
+                case "Pencil":
+                    Picker("Default Tool", selection: $store.tool) { ForEach(InkTool.available) { tool in Text(tool.title).tag(tool) } }
+                    ColorPicker("Default Color", selection: $store.color, supportsOpacity: false)
+                    InkWidthSettings().environmentObject(store)
+                    LabeledContent("Double Tap Action", value: "Switch to Eraser")
+                    Picker("Floating Palette", selection: $dock) { ForEach(["Bottom", "Left", "Right"], id: \.self) { Text($0) } }
+                    NavigationLink("Advanced") { PencilAdvancedSettings() }
+                case "AI":
+                    Toggle("AI Mode · Auto", isOn: $store.autoReply)
+                    Text("先给 2–4 句页边短答；点击 More 才生成深入解释。").font(.caption).foregroundStyle(.secondary)
+                    Toggle("Allow content after my reading position", isOn: $allowSpoilers)
+                    Toggle("Use Images When Needed", isOn: $images)
+                    NavigationLink("Advanced · Bring Your Own API Key") { AIConnectionSettings() }
+                case "Data & Privacy":
+                    LabeledContent("Your PDFs", value: "On this iPad")
+                    LabeledContent("Your handwriting", value: "On this iPad")
+                    Text("Only your question and relevant nearby context are sent when you ask a question. The full PDF is not uploaded.").font(.caption).foregroundStyle(.secondary)
+                    Button("Restore AskInk Archive") { restoringArchive = true }
+                    Button("Delete AI History", role: .destructive) { deletingHistory = true }.disabled(store.busy)
+                    Button("Delete All Local Data", role: .destructive) { deletingData = true }.disabled(store.busy)
+                default:
+                    Text("AskInk").font(.title2)
+                    Text("Read. Write. Ask.")
+                    LabeledContent("Version", value: "\(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—") (\(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "—"))")
+                    LabeledContent("Writing Engine", value: "PencilKit")
+                    Text("Personal edition · no subscription is enabled.").font(.caption).foregroundStyle(.secondary)
+                }
+            }.navigationTitle(category ?? "General").scrollContentBackground(.hidden).background(ReaderStyle.canvas)
+        }.tint(ReaderStyle.accent)
+            .fileImporter(isPresented: $restoringArchive, allowedContentTypes: [.json]) { result in
+                switch result {
+                case .success(let url): store.importArchive(url)
+                case .failure: store.error = "Unable to open this archive."
+                }
+            }
+            .alert("Delete AI History?", isPresented: $deletingHistory) { Button("Delete", role: .destructive) { store.deleteAIHistory() }; Button("Cancel", role: .cancel) {} }
+            .alert("Delete All Local Data?", isPresented: $deletingData) {
+                Button("Delete", role: .destructive) { Task { for book in store.books { await store.removeBook(book) }; dismiss() } }
+                Button("Cancel", role: .cancel) {}
+            } message: { Text("This permanently removes local PDFs, handwriting and AI threads.") }
+    }
+}
+private struct PencilAdvancedSettings: View {
+    @EnvironmentObject var store: ReaderStore
+    var body: some View {
+        Form {
+            Section("PencilKit") {
+                Text("压力、倾角、笔迹稳定与预测由系统引擎处理。公开接口不提供自定义压感曲线或稳定度数值，因此这里不显示无效滑块。")
+            }
+            Section("Palm behavior") { Toggle("Lock page while writing", isOn: $store.lockPageForWriting) }
+        }.navigationTitle("Pencil · Advanced")
+    }
+}
+struct AIConnectionSettings: View {
+    @EnvironmentObject var store: ReaderStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var provider = AIProvider.selected
+    @State private var connection = AIConnection.stored(AIProvider.selected)
+    @State private var token = ProviderKey.read(provider: AIProvider.selected)
+    @AppStorage("aiModel.openAI.expanded") private var expandedModel = "gpt-6.1-sol"
+    @State private var connectionDrafts: [AIProvider: AIConnection] = [:]
+    @State private var keyDrafts: [AIProvider: String] = [:]
     @AppStorage("handwritingLanguage") private var handwritingLanguage = "zh-Hans"
-    @State private var model = UserDefaults.standard.string(forKey: "openAIAnswerModel") ?? "gpt-6.1-sol"
     var body: some View {
         NavigationStack {
             Form {
-                Section("自动回复") {
-                    Toggle("停笔自动识别并回答", isOn: $store.autoReply)
-                    Picker("停笔等待", selection: $store.autoReplyDelay) {
-                        Text("1 秒").tag(1.0)
-                        Text("2 秒").tag(2.0)
-                        Text("3 秒").tag(3.0)
-                        Text("4 秒").tag(4.0)
+                Section("AI · iPad 独立连接") {
+                    Picker("服务", selection: $provider) {
+                        ForEach(AIProvider.allCases) { value in Text(value.title).tag(value) }
+                    }.onChange(of: provider) { old, new in
+                        connectionDrafts[old] = connection; keyDrafts[old] = token
+                        connection = connectionDrafts[new] ?? AIConnection.stored(new)
+                        token = keyDrafts[new] ?? ProviderKey.read(provider: new)
                     }
-                    Text("默认停笔 2 秒后识别这句话并自动回答，无需点击或确认。继续书写会重新计时；只高光划线或擦除不会提问。")
+                    SecureField("API Key", text: $token).textInputAutocapitalization(.never).autocorrectionDisabled()
+                    TextField(provider == .openAI ? "短答模型 ID" : "模型 ID", text: $connection.model).textInputAutocapitalization(.never).autocorrectionDisabled()
+                    if provider == .openAI { TextField("深入解释模型 ID", text: $expandedModel).textInputAutocapitalization(.never).autocorrectionDisabled() }
+                    if provider == .compatible {
+                        TextField("完整 HTTPS API 地址", text: $connection.endpoint).textInputAutocapitalization(.never).autocorrectionDisabled()
+                        Toggle("发送图片（需要视觉模型）", isOn: $connection.includeImage)
+                    }
+                    Text("填写该服务账户可调用的模型 ID；手写问答需要支持图片输入。")
                         .font(.caption).foregroundStyle(.secondary)
-                }
-                Section("书写手感") {
-                    Toggle("书写时锁定页面（防手掌误触）", isOn: $store.lockPageForWriting)
-                    Text("Pencil 落笔或悬停时自动防误触。手掌先落下仍会拖动时，可开启页面锁定；开启后用底部按钮翻页，关闭后恢复手指滚动和缩放。")
-                        .font(.caption).foregroundStyle(.secondary)
-                    HStack { Text("稳定度"); Spacer(); Text("\(Int(store.stabilization * 100))%") }
-                    Slider(value: $store.stabilization, in: 0...1)
-                    Text("默认 15%。低稳定度适合快速笔记；提高稳定度可减少抖动，也会增加跟随延迟。")
-                        .font(.caption).foregroundStyle(.secondary)
-                    HStack { Text("压感强度"); Spacer(); Text("\(Int(store.pressureSensitivity * 100))%") }
-                    Slider(value: $store.pressureSensitivity, in: 0...1)
-                    Text("圆珠笔始终等宽。钢笔温和变化；画笔压感更强，带起收笔变细。")
-                        .font(.caption).foregroundStyle(.secondary)
-                    Button("恢复默认手感") { store.stabilization = 0.15; store.pressureSensitivity = 0.5 }
-                }
-                Section("OpenAI · iPad 独立连接") {
-                    SecureField("OpenAI API Key", text: $token).textInputAutocapitalization(.never).autocorrectionDisabled()
-                    TextField("模型 ID", text: $model).textInputAutocapitalization(.never).autocorrectionDisabled()
-                    Text("填写你的 OpenAI 账户可调用的模型 ID；模型需支持图片输入和结构化回答。")
-                        .font(.caption).foregroundStyle(.secondary)
-                    Text("直接从 iPad 连接 AI，无需电脑服务。密钥保存在本机钥匙串；停笔后自动发送识别文字、原始笔迹图和附近正文。")
+                    Text("直接从 iPad 连接 AI，无需电脑服务。密钥保存在本机钥匙串；以问号结束的问题才自动发送识别文字、原始笔迹图和附近正文。")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Section("本机识别") {
@@ -431,12 +639,13 @@ struct ReaderSettings: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }.scrollContentBackground(.hidden).background(ReaderStyle.canvas)
-                .navigationTitle("阅读偏好").navigationBarTitleDisplayMode(.inline).toolbar { Button("保存") {
+                .navigationTitle("自带 API Key").navigationBarTitleDisplayMode(.inline).toolbar { Button("保存") {
                 do {
-                    let selectedModel = model.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !selectedModel.isEmpty else { throw ReaderError.message("请填写 OpenAI 模型 ID。") }
-                    try ProviderKey.save(token.trimmingCharacters(in: .whitespacesAndNewlines))
-                    UserDefaults.standard.set(selectedModel, forKey: "openAIAnswerModel")
+                    connection.model = connection.model.trimmingCharacters(in: .whitespacesAndNewlines)
+                    connection.endpoint = connection.endpoint.trimmingCharacters(in: .whitespacesAndNewlines)
+                    _ = try connection.validatedURL()
+                    try ProviderKey.save(token.trimmingCharacters(in: .whitespacesAndNewlines), provider: provider)
+                    connection.save()
                     dismiss()
                 }
                 catch { store.error = error.localizedDescription }

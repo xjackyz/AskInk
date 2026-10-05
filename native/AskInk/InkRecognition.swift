@@ -6,11 +6,6 @@ struct HandwritingCandidate: Identifiable {
     var text: String
     var score: Float? = nil
 }
-struct HandwritingRegion: Codable {
-    var text: String
-    var bounds: CGRect
-    var strokeIDs: [UUID]
-}
 struct HandwritingResult {
     var candidates: [HandwritingCandidate]
     var source: String

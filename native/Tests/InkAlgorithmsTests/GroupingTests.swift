@@ -40,4 +40,8 @@ final class GroupingTests: XCTestCase {
         XCTAssertFalse(InkGrouping.isHighlightMark([]))
     }
     func testEmptyInput() { XCTAssertTrue(InkGrouping.blocks([]).isEmpty) }
+    func testSourceMarkSeparatesPriorNoteFromNewQuestion() {
+        let input = [stroke(0, 0, 1, 0, 0), stroke(1, 3, 4, 4, 2)]
+        XCTAssertEqual(InkGrouping.blocks(input, pause: 6, boundaries: [2]), [[1], [0]])
+    }
 }
